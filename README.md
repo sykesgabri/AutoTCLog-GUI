@@ -30,8 +30,7 @@ Linux:
 * Use your distro's package manager to install the `ffmpeg` package
 
 ## Using AutoTCLog-GUI
-1. Clone this repository to your computer by opening a terminal and typing `git clone https://github.com/sykesgabri/AutoTCLog-GUI`
---1. Alternatively, you can click the green "Code" button on this repository, click "Download ZIP", then extract the ZIP file
+1. Clone this repository to your computer by opening a terminal and typing `git clone https://github.com/sykesgabri/AutoTCLog-GUI`. Alternatively, you can click the green "Code" button on this repository, click "Download ZIP", then extract the ZIP file
 2. Open a terminal and navigate to the AutoTCLog-GUI folder
 3. Type the command `python3 autotclog-GUI.py`
 4. Follow the instructions provided to you by the program
