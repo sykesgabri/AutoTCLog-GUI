@@ -1,12 +1,16 @@
 import os
 import glob
 import pandas as pd
+import colorama
+from colorama import Fore, Back, Style
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
-# function to display warning about videos with different framerates
-def show_framerate_warning():
-    messagebox.showwarning('Warning', 'It is advised to keep video files with different framerates in separate folders for this program to work best.')
+# display ascii art logo
+with open('logo.txt', 'r', encoding='utf-8') as file:
+    art = file.read()
+print(Fore.MAGENTA + art)
+print(Style.RESET_ALL + 'Version 1.0.1\n')
 
 # function to get video metadata
 def get_metadata(path):
@@ -14,36 +18,68 @@ def get_metadata(path):
     video_files = glob.glob(os.path.join(path, '*.mp4')) + \
                   glob.glob(os.path.join(path, '*.avi')) + \
                   glob.glob(os.path.join(path, '*.mov')) + \
-                  glob.glob(os.path.join(path, '*.mts'))
+                  glob.glob(os.path.join(path, '*.mpg'))
 
     metadata = []
-    framerates = set()
+    framerates = []
     for file in video_files:
         # get video metadata
-        fps_string = os.popen(f'ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate {file}').read().strip()
+        fps_string = os.popen(f'ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate "{file}"').read().strip()
         fps_parts = fps_string.split('/')
         if len(fps_parts) == 2:
             fps = float(fps_parts[0]) / float(fps_parts[1])
         else:
-            fps = float(fps_string)
-        duration = float(os.popen(f'ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=duration {file}').read())
-        metadata.append({
-            'file': file,
-            'fps': fps,
-            'duration': duration
-        })
-        framerates.add(fps)
+            if '\n' in fps_string:
+                fps_list = []
+                for x in fps_string.split('\n'):
+                    x = x.strip()
+                    try:
+                        fps_list.append(float(x))
+                    except ValueError:
+                        print(f"Error: could not convert '{x}' to float for file '{file}'")
+                if len(fps_list) == 0:
+                    fps = None
+                elif len(fps_list) == 1:
+                    fps = fps_list[0]
+                else:
+                    fps = sum(fps_list) / len(fps_list)
+            else:
+                try:
+                    fps = float(fps_string)
+                except ValueError:
+                    print(f"Error: could not convert '{fps_string}' to float for file '{file}'")
+                    fps = None
+        duration_string = os.popen(f'ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=duration "{file}"').read()
+        try:
+            duration = float(duration_string.strip())
+        except ValueError:
+            duration_parts = duration_string.strip().split('\n')
+            duration_list = [float(x) for x in duration_parts if x.strip()]
+            if len(duration_list) == 0:
+                duration = None
+            elif len(duration_list) == 1:
+                duration = duration_list[0]
+            else:
+                duration = sum(duration_list) / len(duration_list)
+            if duration is None:
+                print(f"Error: could not convert '{duration_string}' to float for file '{file}'")
+        
+        if fps is not None and duration is not None:
+            metadata.append({
+                'file': file,
+                'fps': fps,
+                'duration': duration
+            })
+            framerates.append(fps)
 
     # check for multiple framerates
-    if len(framerates) > 1:
-        show_framerate_warning()
+    if len(set(framerates)) > 1:
+        print("Note: It is advised to keep video files with different framerates in separate folders for this program to work best.")
 
     return metadata
 
 # function to convert timecode string to frame number
 def timecode_to_frame(timecode, fps):
-    if not timecode:
-        timecode = '00:00:00:00'
     h, m, s, f = map(int, timecode.split(':'))
     return (h * 3600 + m * 60 + s) * fps + f
 
@@ -54,44 +90,39 @@ def frame_to_timecode(frame, fps):
     f = int(frame % fps)
     return f'{h:02d}:{m:02d}:{s:02d}:{f:02d}'
 
-# function to handle browse button click
-def browse_path():
-    folder_path = filedialog.askdirectory()
-    path_entry.delete(0, tk.END)
-    path_entry.insert(0, folder_path)
+# function to browse for input folder path
+def browse_input_folder():
+    global input_folder_path
+    input_folder_path = filedialog.askdirectory()
+    input_folder_path_text.delete(0, tk.END)
+    input_folder_path_text.insert(0, input_folder_path)
 
-# function to handle start timecode entry
-def validate_timecode():
-    timecode = timecode_entry.get()
-    if len(timecode) != 11:
-        messagebox.showerror('Error', 'Invalid timecode format. Please enter timecode as HH:MM:SS:FF.')
-        return False
-    for t in timecode.split(':'):
-        if not t.isdigit():
-            messagebox.showerror('Error', 'Invalid timecode format. Please enter timecode as HH:MM:SS:FF.')
-            return False
-    return True
+# function to browse for output folder path
+def browse_output_folder():
+    global output_folder_path
+    output_folder_path = filedialog.askdirectory()
+    output_folder_path_text.delete(0, tk.END)
+    output_folder_path_text.insert(0, output_folder_path)
 
-# function to handle browse output path button click
-def browse_output_path():
-    output_path = filedialog.askdirectory()
-    output_path_entry.delete(0, tk.END)
-    output_path_entry.insert(0, output_path)
-
-# function to handle run button click
-def run():
-    # get input values from GUI
-    path = path_entry.get()
-    start_timecode = timecode_entry.get()
-    output_path = output_path_entry.get()
-    output_file = output_file_entry.get()
-
-    # check if output file name is empty and set default value
-    if not output_file:
-        output_file = 'AutoTCLog'
+# function to start processing
+def start_processing():
+    # get folder path from user input
+    path = input_folder_path
+    print("Scanning folder, please wait...")
 
     # get video metadata
     metadata = get_metadata(path)
+
+    # get start timecode from user input
+    start_timecode = start_timecode_text.get()
+
+    # check if start timecode is empty and set default value
+    if not start_timecode:
+        start_timecode = '00:00:00:00'
+
+    # ask user for output file name and location
+    output_path = output_folder_path_text.get()
+    output_file = output_file_text.get()
 
     # create pandas dataframe to store results
     df = pd.DataFrame(columns=['File', 'Timecode In', 'Timecode Out', 'Scene Number', 'Shot Number', 'Usable'])
@@ -105,8 +136,6 @@ def run():
 
         # calculate timecode in and timecode out
         if i == 0:
-            if not start_timecode:
-                start_timecode = '00:00:00:00'
             timecode_in = start_timecode
         else:
             timecode_in = df.loc[i-1, 'Timecode Out']
@@ -115,60 +144,58 @@ def run():
         timecode_out = frame_to_timecode(frame_out, fps)
 
         # add row to dataframe
-        file_name, file_ext = os.path.splitext(os.path.basename(file))
-        file_path = os.path.join(output_path, file_name + file_ext)
+        if output_path:
+            file_name = os.path.splitext(os.path.basename(file))[0] + os.path.splitext(file)[-1]
+            file_name_no_ext = os.path.splitext(os.path.basename(file))[0]
+            file_path = os.path.join(output_path, f'{os.path.splitext(os.path.basename(file))[0]}{os.path.splitext(file)[-1]}')
+        else:
+            file_path = os.path.splitext(file)[0] + '.xlsx'
         df.loc[i] = [file_path, timecode_in, timecode_out, '', '', '']
 
     # save dataframe to excel file
-    file_path = os.path.join(output_path, output_file + '.xlsx')
+    if output_path:
+        file_path = os.path.join(output_path, f'{output_file}.xlsx')
+    else:
+        file_path = os.path.join(path, f'{output_file}.xlsx')
     df.to_excel(file_path, index=False)
 
-    messagebox.showinfo('Info', f"Output file saved to {file_path}")
+    print(f"Output file saved to {file_path}")
 
-# create GUI
+# create GUI window
 root = tk.Tk()
-root.title('AutoTCLog-GUI')
+root.title("Video Scene Detection Tool")
 
-# create frame for folder path input
-path_frame = tk.Frame(root)
-path_frame.pack(fill=tk.X, padx=10, pady=10)
-path_label = tk.Label(path_frame, text='Folder Path:')
-path_label.pack(side=tk.LEFT)
-path_entry = tk.Entry(path_frame)
-path_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
-path_button = tk.Button(path_frame, text='Browse', command=browse_path)
-path_button.pack(side=tk.LEFT)
+# create input folder path label and textbox
+input_folder_path_label = tk.Label(root, text="Input folder path:")
+input_folder_path_label.grid(row=0, column=0)
+input_folder_path_text = tk.Entry(root)
+input_folder_path_text.grid(row=0, column=1)
+browse_input_folder_button = tk.Button(root, text="Browse", command=browse_input_folder)
+browse_input_folder_button.grid(row=0, column=2)
 
-# create frame for start timecode input
-timecode_frame = tk.Frame(root)
-timecode_frame.pack(fill=tk.X, padx=10, pady=10)
-timecode_label = tk.Label(timecode_frame, text='Start Timecode:')
-timecode_label.pack(side=tk.LEFT)
-timecode_entry = tk.Entry(timecode_frame, width=11)
-timecode_entry.pack(side=tk.LEFT)
-default_timecode_label = tk.Label(timecode_frame, text='(default: 00:00:00:00)')
-default_timecode_label.pack(side=tk.LEFT)
+# create start timecode label and textbox
+start_timecode_label = tk.Label(root, text="Start timecode (HH:MM:SS:FF):")
+start_timecode_label.grid(row=1, column=0)
+start_timecode_text = tk.Entry(root)
+start_timecode_text.grid(row=1, column=1)
 
-#create frame for output file path input
-output_path_frame = tk.Frame(root)
-output_path_frame.pack(fill=tk.X, padx=10, pady=10)
-output_path_label = tk.Label(output_path_frame, text='Output File Path:')
-output_path_label.pack(side=tk.LEFT)
-output_path_entry = tk.Entry(output_path_frame)
-output_path_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
-output_path_button = tk.Button(output_path_frame, text='Browse', command=browse_output_path)
-output_path_button.pack(side=tk.LEFT)
+# create output folder path label and textbox
+output_folder_path_label = tk.Label(root, text="Output folder path:")
+output_folder_path_label.grid(row=2, column=0)
+output_folder_path_text = tk.Entry(root)
+output_folder_path_text.grid(row=2, column=1)
+browse_output_folder_button = tk.Button(root, text="Browse", command=browse_output_folder)
+browse_output_folder_button.grid(row=2, column=2)
 
-# create frame for output file name input
-output_file_frame = tk.Frame(root)
-output_file_frame.pack(fill=tk.X, padx=10, pady=10)
-output_file_label = tk.Label(output_file_frame, text='Output File Name:')
-output_file_label.pack(side=tk.LEFT)
-output_file_entry = tk.Entry(output_file_frame)
-output_file_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
+# create output file name label and textbox
+output_file_label = tk.Label(root, text="Output file name (excluding file extension):")
+output_file_label.grid(row=3, column=0)
+output_file_text = tk.Entry(root)
+output_file_text.grid(row=3, column=1)
 
-# create run button
-run_button = tk.Button(root, text='Run', command=run)
-run_button.pack(pady=10)
+# create start processing button
+start_processing_button = tk.Button(root, text="Start Processing", command=start_processing)
+start_processing_button.grid(row=4, column=1)
 
+# start GUI event loop
 root.mainloop()
